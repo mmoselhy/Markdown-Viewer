@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build portable executable
+        run: npm run build:portable
+
+      - name: Get release info
+        id: release_info
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref }}".Replace('refs/tags/', '')
+          $version = $tag.Replace('v', '')
+          echo "tag=$tag" >> $env:GITHUB_OUTPUT
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Generate release notes
+        id: release_notes
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ steps.release_info.outputs.tag }}"
+          $previousTag = (gh release list --limit 1 --json tagName -q ".[0].tagName")
+
+          if ($previousTag) {
+            $commits = gh api repos/${{ github.repository }}/compare/$previousTag...$tag --jq '.commits[] | "- \(.commit.message | split("\n")[0]) ([\(.author.login)](\(.author.html_url)))"'
+          } else {
+            $commits = gh api repos/${{ github.repository }}/commits --jq '.[] | "- \(.commit.message | split("\n")[0]) ([\(.author.login)](\(.author.html_url)))"' | head -20
+          }
+
+          $releaseNotes = "## Changelog`n`n$commits"
+          $releaseNotes | Out-File -FilePath release_notes.md -Encoding UTF8
+          $content = (Get-Content release_notes.md -Raw) -replace "`r`n", "`n"
+          "notes<<EOF" >> $env:GITHUB_OUTPUT
+          $content >> $env:GITHUB_OUTPUT
+          "EOF" >> $env:GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.release_info.outputs.tag }}
+          name: Release ${{ steps.release_info.outputs.version }}
+          body: ${{ steps.release_notes.outputs.notes }}
+          draft: false
+          prerelease: false
+          files: |
+            dist/*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

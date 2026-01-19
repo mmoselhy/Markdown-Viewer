@@ -138,7 +138,7 @@ Build configuration is in `package.json` under the `build` section. Key settings
 
 ## License
 
-[Specify your license here]
+MIT
 
 ## Contributing
 
