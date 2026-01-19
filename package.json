@@ -1,0 +1,39 @@
+{
+  "name": "mdreader",
+  "version": "0.1.0",
+  "description": "MD Reader",
+  "author": "Unknown",
+  "private": true,
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "electron .",
+    "build": "npm run deploy:fast",
+    "build:portable": "electron-builder --win portable",
+    "pack": "electron-builder --dir",
+    "deploy:fast": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-fast.ps1"
+  },
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "dependencies": {
+    "marked": "^9.1.6"
+  },
+  "build": {
+    "appId": "com.example.mdreader",
+    "productName": "MD Reader",
+    "asar": true,
+    "compression": "store",
+    "files": [
+      "electron/**",
+      "frontend/**",
+      "assets/**",
+      "package.json"
+    ],
+    "win": {
+      "target": ["portable"],
+      "icon": "assets/icon.ico",
+      "signAndEditExecutable": false
+    }
+  }
+}

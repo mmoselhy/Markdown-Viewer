@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MD Reader</title>
+    <link rel="stylesheet" href="shell.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">MD Reader</div>
+        <button id="openBtn" class="btn" title="Open (Ctrl+O)">Open</button>
+        <div id="fileName" class="file-name">No file loaded</div>
+        <div class="spacer"></div>
+        <div class="search-wrap">
+          <input id="searchInput" class="search" type="search" placeholder="Search" />
+          <button id="searchClear" class="icon-btn" title="Clear search (Esc)" aria-label="Clear search">
+            &#x2715;
+          </button>
+          <span id="searchCount" class="search-count" aria-live="polite"></span>
+        </div>
+        <button id="fontSmaller" class="icon-btn" title="Smaller text (Ctrl+-)" aria-label="Smaller text">A-</button>
+        <button id="fontLarger" class="icon-btn" title="Larger text (Ctrl+=)" aria-label="Larger text">A+</button>
+        <button id="widthToggle" class="icon-btn" title="Toggle width" aria-label="Toggle width">Width</button>
+        <button id="themeToggle" class="btn ghost" title="Toggle theme (Ctrl+T)">Theme</button>
+      </header>
+      <main class="content" id="content">
+        <div class="empty">
+          <div class="empty-title">Drop a .md file here</div>
+          <div class="empty-sub">or use Open (Ctrl+O)</div>
+        </div>
+      </main>
+      <footer class="status" id="status">
+        <span class="status-pill" id="statusPill">Ready</span>
+        <span class="status-text" id="statusText"></span>
+        <div class="status-actions">
+          <button id="copyPath" class="icon-btn ghost" title="Copy file path" aria-label="Copy file path">Copy Path</button>
+          <button id="revealPath" class="icon-btn ghost" title="Reveal in Explorer" aria-label="Reveal in Explorer">Reveal</button>
+        </div>
+      </footer>
+    </div>
+    <div class="drop-overlay" id="dropOverlay" aria-hidden="true">
+      <div class="drop-card">Drop to open</div>
+    </div>
+    <script src="main.js" defer></script>
+  </body>
+</html>
