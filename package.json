@@ -1,6 +1,6 @@
 {
   "name": "mdreader",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MD Reader",
   "author": "Unknown",
   "private": true,
@@ -32,7 +32,9 @@
       "!node_modules/**"
     ],
     "win": {
-      "target": ["portable"],
+      "target": [
+        "portable"
+      ],
       "icon": "assets/icon.ico",
       "signAndEditExecutable": false
     }
