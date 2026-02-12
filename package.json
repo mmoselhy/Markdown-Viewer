@@ -10,15 +10,15 @@
     "build": "npm run deploy:fast",
     "build:portable": "electron-builder --win portable",
     "pack": "electron-builder --dir",
-    "deploy:fast": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-fast.ps1"
+    "deploy:fast": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-fast.ps1",
+    "perf:startup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/benchmark-startup.ps1",
+    "perf:startup:gpu-off": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/benchmark-startup.ps1 -DisableGpu"
   },
   "devDependencies": {
     "electron": "^30.0.0",
     "electron-builder": "^24.13.3"
   },
-  "dependencies": {
-    "marked": "^9.1.6"
-  },
+  "dependencies": {},
   "build": {
     "appId": "com.example.mdreader",
     "productName": "MD Reader",
@@ -28,7 +28,8 @@
       "electron/**",
       "frontend/**",
       "assets/**",
-      "package.json"
+      "package.json",
+      "!node_modules/**"
     ],
     "win": {
       "target": ["portable"],

@@ -22,12 +22,24 @@ let currentIndex = -1;
 let currentPath = null;
 let currentWidthMode = "comfort";
 let currentFontSize = 1;
+let markedLoadPromise = null;
+let fullStylesPromise = null;
+let searchListenersAttached = false;
+
+const LARGE_FILE_PREVIEW_BYTES = 256 * 1024;
+const PREVIEW_CHAR_LIMIT = 12000;
 
 function getApi() {
   return window.mdreader || null;
 }
 
-let markedLoadPromise = null;
+function reportPerf(name, meta) {
+  const api = getApi();
+  if (!api || typeof api.reportPerf !== "function") {
+    return;
+  }
+  api.reportPerf(name, meta);
+}
 
 function loadMarked() {
   if (window.marked && typeof window.marked.parse === "function") {
@@ -40,7 +52,10 @@ function loadMarked() {
     const script = document.createElement("script");
     script.src = "vendor/marked.min.js";
     script.defer = true;
-    script.onload = () => resolve(window.marked);
+    script.onload = () => {
+      reportPerf("marked-loaded");
+      resolve(window.marked);
+    };
     script.onerror = () => reject(new Error("Failed to load marked."));
     document.head.appendChild(script);
   });
@@ -127,22 +142,52 @@ function initReadingPrefs() {
 }
 
 function loadFullStyles() {
+  if (fullStylesPromise) {
+    return fullStylesPromise;
+  }
+
   const existing = document.querySelector('link[rel="stylesheet"][href="styles.css"]');
   if (existing) {
-    return;
+    fullStylesPromise = Promise.resolve();
+    return fullStylesPromise;
   }
-  const link = document.createElement("link");
-  link.rel = "stylesheet";
-  link.href = "styles.css";
-  link.media = "print";
-  link.onload = () => {
-    link.media = "all";
-  };
-  document.head.appendChild(link);
+
+  fullStylesPromise = new Promise((resolve, reject) => {
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "styles.css";
+    link.media = "print";
+    link.onload = () => {
+      link.media = "all";
+      reportPerf("styles-loaded");
+      resolve();
+    };
+    link.onerror = () => reject(new Error("Failed to load full styles."));
+    document.head.appendChild(link);
+  });
+
+  return fullStylesPromise;
 }
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function escapeHtml(value) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function renderPlainPreview(text) {
+  const previewText =
+    text.length > PREVIEW_CHAR_LIMIT
+      ? `${text.slice(0, PREVIEW_CHAR_LIMIT)}\n\n[Preview truncated while full markdown rendering completes...]`
+      : text;
+  elements.content.innerHTML = `<pre class="markdown plain-preview">${escapeHtml(previewText)}</pre>`;
 }
 
 function clearHighlights() {
@@ -286,17 +331,35 @@ async function loadFile(path) {
     setErrorState("Electron API not available. Run via Electron.");
     return;
   }
+  const startedAt = performance.now();
+  reportPerf("file-open-requested", { pathLength: path.length });
+
+  loadFullStyles().catch(() => {});
   setLoading(true);
   setStatusWithLevel("Loading file...", "loading");
 
   try {
     const text = await api.readFile(path);
+    reportPerf("file-read-complete", { bytes: text.length });
+
+    clearHighlights();
+    if (text.length > LARGE_FILE_PREVIEW_BYTES) {
+      renderPlainPreview(text);
+      setStatusWithLevel("Rendering preview...", "loading");
+      reportPerf("markdown-preview-rendered", { bytes: text.length });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
     const html = await parseMarkdown(text);
     elements.content.innerHTML = `<div class="markdown">${html}</div>`;
     elements.fileName.textContent = path.split(/[/\\]/).pop();
     currentPath = path;
     setFileActionsEnabled(true);
     setStatusWithLevel(`Loaded ${path}`, "info");
+    reportPerf("markdown-render-complete", {
+      bytes: text.length,
+      durationMs: Math.round(performance.now() - startedAt),
+    });
   } catch (err) {
     setErrorState(String(err));
   } finally {
@@ -414,13 +477,35 @@ function handleShortcuts(event) {
   }
 }
 
+function runWhenIdle(callback, timeout) {
+  if (window.requestIdleCallback) {
+    window.requestIdleCallback(callback, { timeout });
+    return;
+  }
+  setTimeout(callback, 0);
+}
+
+function attachSearchListeners() {
+  if (searchListenersAttached) {
+    return;
+  }
+  searchListenersAttached = true;
+  elements.searchInput.addEventListener(
+    "input",
+    debounce((event) => highlightMatches(event.target.value.trim()), 200)
+  );
+  elements.searchInput.addEventListener("keydown", onSearchKey);
+  reportPerf("search-listeners-ready");
+}
+
 function init() {
+  reportPerf("dom-content-loaded");
   initTheme();
   initReadingPrefs();
-  loadFullStyles();
   if (document.body) {
     window.requestAnimationFrame(() => {
       document.body.classList.add("is-ready");
+      reportPerf("shell-ready");
     });
   }
   elements.openBtn.addEventListener("click", openDialog);
@@ -447,18 +532,14 @@ function init() {
   document.addEventListener("dragenter", onDragEnter);
   document.addEventListener("dragleave", onDragLeave);
   document.addEventListener("keydown", handleShortcuts);
-  const attachSearch = () => {
-    elements.searchInput.addEventListener(
-      "input",
-      debounce((event) => highlightMatches(event.target.value.trim()), 200)
-    );
-    elements.searchInput.addEventListener("keydown", onSearchKey);
-  };
-  if (window.requestIdleCallback) {
-    window.requestIdleCallback(attachSearch, { timeout: 1000 });
-  } else {
-    setTimeout(attachSearch, 0);
-  }
+  elements.searchInput.addEventListener("focus", attachSearchListeners, { once: true });
+  runWhenIdle(() => {
+    attachSearchListeners();
+    loadMarked().catch(() => {});
+  }, 1200);
+  runWhenIdle(() => {
+    loadFullStyles().catch(() => {});
+  }, 2500);
 
   const api = getApi();
   if (api && api.onOpenFile) {
@@ -475,6 +556,7 @@ function init() {
   } else {
     setStatusWithLevel("Ready", "info");
   }
+  reportPerf("interactive-ready");
 }
 
 document.addEventListener("DOMContentLoaded", init);

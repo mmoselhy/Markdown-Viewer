@@ -95,6 +95,33 @@ To create an unpacked build for testing without compression:
 npm run pack
 ```
 
+## Startup Benchmarking
+
+Run startup benchmarks in dev mode:
+
+```sh
+npm run perf:startup
+```
+
+Run startup benchmarks with GPU acceleration disabled:
+
+```sh
+npm run perf:startup:gpu-off
+```
+
+The benchmark runner reads structured `[perf]` events, prints `p50`, `p95`, `min`, and `max` timings, and warns when startup budgets are exceeded.
+
+You can also benchmark a packaged executable directly:
+
+```sh
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/benchmark-startup.ps1 -ExecutablePath "dist\\win-unpacked\\MD Reader.exe"
+```
+
+Default startup targets:
+
+- Empty launch interactive: `<= 1000ms` p50, `<= 1300ms` p95
+- Launch with small file (`<200KB`): `<= 1200ms` p50
+
 ## Project Structure
 
 ```
@@ -123,9 +150,12 @@ mdreader/
 ## Development Notes
 
 - The app uses vanilla HTML/CSS/JS with no build step for the renderer
-- Markdown parsing happens in the renderer using the `marked` library
+- Markdown parsing happens in the renderer using vendored `frontend/vendor/marked.min.js`
 - Context isolation and sandboxing are enabled for security
 - The application enforces single-instance behavior
+- Non-critical startup work is deferred with idle callbacks
+- Large markdown files render a fast plain-text preview before full markdown parsing completes
+- The app emits structured startup events using `[perf]` logs
 
 ## Configuration
 
@@ -135,6 +165,12 @@ Build configuration is in `package.json` under the `build` section. Key settings
 - **productName**: MD Reader
 - **compression**: `store` (no compression for fast startup)
 - **asar**: Enabled for bundling
+
+Runtime startup flags:
+
+- `MDREADER_DISABLE_GPU=1` disables GPU acceleration
+- `MDREADER_PERF_FILE=<path>` writes JSONL perf events to a file for benchmarking
+- `--perf-exit` exits shortly after startup milestones to support repeatable benchmarking
 
 ## License
 

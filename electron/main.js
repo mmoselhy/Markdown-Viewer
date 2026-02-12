@@ -2,10 +2,49 @@ const { app, BrowserWindow, dialog, ipcMain, shell, clipboard } = require("elect
 const fs = require("fs");
 const path = require("path");
 
-const startTime = Date.now();
+const perfOriginMs = Date.now();
+const perfExitRequested = process.argv.includes("--perf-exit");
+const perfFilePath = process.env.MDREADER_PERF_FILE ? path.resolve(process.env.MDREADER_PERF_FILE) : null;
 
-app.disableHardwareAcceleration();
+function elapsedMs() {
+  return Date.now() - perfOriginMs;
+}
+
+function normalizeMeta(meta) {
+  if (!meta || typeof meta !== "object") {
+    return {};
+  }
+  const clean = {};
+  for (const [key, value] of Object.entries(meta)) {
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      clean[key] = value;
+    }
+  }
+  return clean;
+}
+
+function logPerf(name, meta) {
+  const payload = {
+    name,
+    ms: elapsedMs(),
+    ...normalizeMeta(meta),
+  };
+  console.log(`[perf] ${JSON.stringify(payload)}`);
+  if (perfFilePath) {
+    try {
+      fs.appendFileSync(perfFilePath, `${JSON.stringify(payload)}\n`, "utf8");
+    } catch (_err) {
+      // Ignore perf file write failures in normal app flow.
+    }
+  }
+}
+
+if (process.env.MDREADER_DISABLE_GPU === "1") {
+  app.disableHardwareAcceleration();
+  logPerf("gpu-disabled", { reason: "MDREADER_DISABLE_GPU=1" });
+}
 app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
+logPerf("main-process-start");
 
 let mainWindow = null;
 let pendingOpenPath = null;
@@ -40,6 +79,7 @@ function sendOpenFile(filePath) {
 }
 
 function createWindow() {
+  logPerf("create-window:start");
   isRendererReady = false;
   mainWindow = new BrowserWindow({
     title: "MD Reader",
@@ -47,7 +87,7 @@ function createWindow() {
     height: 720,
     resizable: true,
     icon: path.join(__dirname, "..", "assets", "icon.ico"),
-    show: true,
+    show: false,
     backgroundColor: "#f7f4ef",
     autoHideMenuBar: true,
     webPreferences: {
@@ -58,10 +98,20 @@ function createWindow() {
       spellcheck: false,
     },
   });
+  logPerf("create-window:done");
 
   mainWindow.loadFile(path.join(__dirname, "..", "frontend", "index.html"));
 
+  mainWindow.once("ready-to-show", () => {
+    if (!mainWindow) {
+      return;
+    }
+    mainWindow.show();
+    logPerf("window-shown");
+  });
+
   mainWindow.webContents.on("did-finish-load", () => {
+    logPerf("did-finish-load");
     isRendererReady = true;
     if (pendingOpenPath) {
       sendOpenFile(pendingOpenPath);
@@ -70,8 +120,10 @@ function createWindow() {
   });
 
   mainWindow.webContents.on("dom-ready", () => {
-    const elapsedMs = Date.now() - startTime;
-    console.log(`Startup dom-ready in ${elapsedMs}ms`);
+    logPerf("dom-ready");
+    if (perfExitRequested) {
+      setTimeout(() => app.quit(), 120);
+    }
   });
 
   mainWindow.on("closed", () => {
@@ -104,6 +156,7 @@ if (!gotLock) {
 app.setAppUserModelId("com.example.mdreader");
 
 app.on("ready", () => {
+  logPerf("app-ready");
   createWindow();
   extractFilePath(process.argv)
     .then((filePath) => {
@@ -129,6 +182,13 @@ app.on("activate", () => {
 app.on("open-file", (event, filePath) => {
   event.preventDefault();
   sendOpenFile(filePath);
+});
+
+ipcMain.on("perf:event", (_event, payload) => {
+  if (!payload || typeof payload.name !== "string") {
+    return;
+  }
+  logPerf(`renderer:${payload.name}`, payload.meta);
 });
 
 ipcMain.handle("open-dialog", async () => {
