@@ -17,6 +17,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      tag: ${{ steps.release_meta.outputs.tag }}
+      version: ${{ steps.release_meta.outputs.version }}
 
     steps:
       - name: Checkout repository
@@ -53,6 +56,14 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: npm version "$VERSION" --no-git-tag-version
 
+      - name: Set release metadata
+        id: release_meta
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
       - name: Commit version bump and push tag
         env:
           VERSION: ${{ inputs.version }}
@@ -65,6 +76,70 @@ jobs:
           git tag "$TAG"
           git push origin HEAD:${{ github.ref_name }}
           git push origin "$TAG"
+
+  release_manual:
+    if: github.event_name == 'workflow_dispatch'
+    needs: [create_tag]
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository at release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.create_tag.outputs.tag }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build fast startup zip package
+        run: npm run build
+
+      - name: Build portable executable
+        run: npm run build:portable
+
+      - name: Generate release notes
+        id: release_notes
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ needs.create_tag.outputs.tag }}"
+          $previousTag = (gh release list --limit 1 --json tagName -q ".[0].tagName")
+
+          if ($previousTag) {
+            $commits = gh api repos/${{ github.repository }}/compare/$previousTag...$tag --jq '.commits[] | "- \(.commit.message | split("\n")[0]) ([\(.author.login)](\(.author.html_url)))"'
+          } else {
+            $commits = gh api repos/${{ github.repository }}/commits --jq '.[] | "- \(.commit.message | split("\n")[0]) ([\(.author.login)](\(.author.html_url)))"' | head -20
+          }
+
+          $releaseNotes = "## Changelog`n`n$commits"
+          $releaseNotes | Out-File -FilePath release_notes.md -Encoding UTF8
+          $content = (Get-Content release_notes.md -Raw) -replace "`r`n", "`n"
+          "notes<<EOF" >> $env:GITHUB_OUTPUT
+          $content >> $env:GITHUB_OUTPUT
+          "EOF" >> $env:GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.create_tag.outputs.tag }}
+          name: Release ${{ needs.create_tag.outputs.version }}
+          body: ${{ steps.release_notes.outputs.notes }}
+          draft: false
+          prerelease: false
+          files: |
+            dist/*.exe
+            dist/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   release:
     if: github.event_name == 'push'
